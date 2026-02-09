@@ -1,0 +1,6 @@
+timestamp,ground_truth_timestamp,device_id,event_type,value
+4/23/2024 13:11,2024-04-23 13:10:55,Phone01,motion_detected,1
+4/23/2024 13:11,2024-04-23 13:11:10,Phone01,motion_detected,1
+4/23/2024 13:12,2024-04-23 13:11:42,Phone01,motion_detected,1
+4/23/2024 13:12,2024-04-23 13:12:05,Phone01,motion_detected,1
+4/23/2024 13:13,2024-04-23 13:12:37,Phone01,motion_detected,1
