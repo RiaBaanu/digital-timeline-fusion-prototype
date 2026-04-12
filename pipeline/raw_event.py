@@ -1,4 +1,7 @@
-# pipeline/raw_event.py
+"""
+Represents a raw event extracted directly from source logs
+before canonical normalisation.
+"""
 from dataclasses import dataclass
 from typing import Any, Dict
 
