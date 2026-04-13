@@ -8,18 +8,16 @@ phone_parser = IoTCSVParser("data/synthetic/iot_phone01_skewed.csv")
 events = []
 
 for re in camera_parser.parse():
-    ce = build_canonical_event(re)
-if ce is not None:
-    events.append(ce)
-
+    events.append(build_canonical_event(re))
 
 for re in phone_parser.parse():
-    ce = build_canonical_event(re)
-if ce is not None:
-    events.append(ce)
+    events.append(build_canonical_event(re))
 
 
-overlaps = detect_overlapping_events(events)
+overlaps = detect_overlapping_events(
+    events,
+    reference_device="Camera01"
+)
 
 results = calculate_median_skew(overlaps, reference_device="Camera01")
 

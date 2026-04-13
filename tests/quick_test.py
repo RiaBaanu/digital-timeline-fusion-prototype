@@ -7,7 +7,6 @@ raw_events = parser.parse()
 for re in raw_events:
     ce = build_canonical_event(re)
     print(
-        ce.corrected_timestamp,
-        ce.timestamp_valid,
-        ce.timestamp_error
+        f"{ce.device_id} | {ce.corrected_timestamp} | "
+        f"valid={ce.timestamp_valid} | error={ce.timestamp_error}"
     )

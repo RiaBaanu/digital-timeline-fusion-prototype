@@ -13,20 +13,16 @@ events = []
 
 for re in camera_parser.parse():
     ce = build_canonical_event(re)
-if ce is not None:
     events.append(ce)
-
 
 for re in phone_parser.parse():
     ce = build_canonical_event(re)
-if ce is not None:
     events.append(ce)
 
-
-overlaps = detect_overlapping_events(events)
+overlaps = detect_overlapping_events(events, reference_device="Camera01")
 skew = calculate_median_skew(overlaps, reference_device="Camera01")
 
 events = apply_clock_skew(events, skew, reference_device="Camera01")
 
 for e in events:
-    print(e.device_id, e.corrected_timestamp)
+    print(e.device_id, e.corrected_timestamp, e.confidence_score)

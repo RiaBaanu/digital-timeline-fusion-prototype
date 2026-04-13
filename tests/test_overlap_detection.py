@@ -14,7 +14,10 @@ for re in camera_parser.parse():
 for re in phone_parser.parse():
     events.append(build_canonical_event(re))
 
-overlaps = detect_overlapping_events(events)
+overlaps = detect_overlapping_events(
+    events,
+    reference_device="Camera01"
+)
 
 print(f"Found {len(overlaps)} overlapping event pairs")
 

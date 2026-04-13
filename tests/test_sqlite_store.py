@@ -7,6 +7,8 @@ from pipeline.skew_detector import (
 )
 from pipeline.fusion_engine import fuse_events
 from pipeline.sqlite_store import save_timeline_to_sqlite
+import os
+os.makedirs("db", exist_ok=True)
 
 # Load data
 camera_parser = IoTCSVParser("data/synthetic/iot_camera01.csv")
@@ -21,7 +23,10 @@ for re in phone_parser.parse():
     events.append(build_canonical_event(re))
 
 # Skew correction
-overlaps = detect_overlapping_events(events)
+overlaps = detect_overlapping_events(
+    events,
+    reference_device="Camera01"
+)
 skew = calculate_median_skew(overlaps, reference_device="Camera01")
 events = apply_clock_skew(events, skew, reference_device="Camera01")
 

@@ -20,7 +20,7 @@ for re in phone_parser.parse():
     events.append(build_canonical_event(re))
 
 # Apply skew correction
-overlaps = detect_overlapping_events(events)
+overlaps = detect_overlapping_events(events, reference_device="Camera01")
 skew = calculate_median_skew(overlaps, reference_device="Camera01")
 events = apply_clock_skew(events, skew, reference_device="Camera01")
 
@@ -32,4 +32,7 @@ for e in fused:
         e.corrected_timestamp,
         e.device_id,
         e.event_type
+        , "confidence:",
+        e.confidence_score
     )
+
