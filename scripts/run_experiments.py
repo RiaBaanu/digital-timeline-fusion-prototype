@@ -12,6 +12,9 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+from colorama import Fore, Style, init
+init(autoreset=True)
+
 import matplotlib.pyplot as plt
 
 from parsers.iot_parser import IoTCSVParser
@@ -26,7 +29,7 @@ from pipeline.confidence_model import compute_cluster_confidence
 from pipeline.fusion_engine import fuse_events
 from pipeline.evaluation import (
     compute_timestamp_mae,
-    compute_weighted_ordering_accuracy
+    compute_ordering_accuracy
 )
 
 random.seed(42)
@@ -42,7 +45,10 @@ def inject_skew(events, phone_skew=0, laptop_skew=0, noise_level=0):
         if not e.ground_truth_timestamp:
             continue
 
-        base = datetime.fromisoformat(e.ground_truth_timestamp)
+        try:
+            base = datetime.fromisoformat(e.ground_truth_timestamp)
+        except:
+            continue
 
         if e.device_id == "Phone01":
             skew = phone_skew
@@ -62,7 +68,6 @@ def inject_skew(events, phone_skew=0, laptop_skew=0, noise_level=0):
 
         noise = random.uniform(-noise_level, noise_level)
 
-        # Simulate skewed device timestamp
         e.corrected_timestamp = (
             base + timedelta(seconds=skew + noise)
         ).isoformat()
@@ -82,8 +87,11 @@ def compute_residual_skew(events):
         if not e.ground_truth_timestamp or not e.corrected_timestamp:
             continue
 
-        gt = datetime.fromisoformat(e.ground_truth_timestamp)
-        ct = datetime.fromisoformat(e.corrected_timestamp)
+        try:
+            gt = datetime.fromisoformat(e.ground_truth_timestamp)
+            ct = datetime.fromisoformat(str(e.corrected_timestamp))
+        except:
+            continue
 
         errors[e.device_id].append((ct - gt).total_seconds())
 
@@ -119,12 +127,14 @@ def run_scenario(phone_skew, laptop_skew, noise):
     skew = calculate_median_skew(overlaps, reference_device="Camera01")
     corrected = apply_clock_skew(events, skew, reference_device="Camera01")
 
-    fused = fuse_events(corrected, confidence_weighted=True)
+    fused = fuse_events(corrected)
 
     residuals = compute_residual_skew(fused)
 
     clusters = cluster_events(fused, window_seconds=5)
     total_devices = len(set(e.device_id for e in fused))
+
+    confidence_error_pairs = []
 
     for cluster in clusters:
         confidence = compute_cluster_confidence(cluster, residuals, total_devices)
@@ -134,10 +144,19 @@ def run_scenario(phone_skew, laptop_skew, noise):
             e.confidence_score = confidence
             e.cluster_id = cid
 
-    mae_after = compute_timestamp_mae(fused)
-    ordering = compute_weighted_ordering_accuracy(fused)
+            if e.ground_truth_timestamp and e.corrected_timestamp:
+                try:
+                    gt = datetime.fromisoformat(e.ground_truth_timestamp)
+                    ct = datetime.fromisoformat(str(e.corrected_timestamp))
+                    error = abs((ct - gt).total_seconds())
+                    confidence_error_pairs.append((confidence, error))
+                except:
+                    pass
 
-    return fused, mae_after, ordering
+    mae_after = compute_timestamp_mae(fused)
+    ordering = compute_ordering_accuracy(fused)
+
+    return fused, mae_after, ordering, confidence_error_pairs
 
 
 # =========================================================
@@ -154,50 +173,123 @@ def main():
 
     os.makedirs("output", exist_ok=True)
 
-    print("\nScenario     Noise   MAE_After   Ordering")
-    print("---------------------------------------------------")
+    print("\nScenario              Noise             MAE_After                Ordering")
+    print("--------------------------------------------------------------------------------")
 
     results = []
+    all_conf_err = []
+    device_confidence = defaultdict(list)
 
     for name, ps, ls, noise in scenarios:
 
-        fused, mae_a, ordering = run_scenario(ps, ls, noise)
+        fused, mae_a, ordering, conf_err = run_scenario(ps, ls, noise)
 
-        mae_display = f"{mae_a:.2f}" if mae_a is not None else "N/A"
-        ordering_display = f"{ordering:.4f}" if ordering is not None else "N/A"
+        all_conf_err.extend(conf_err)
 
-        print(f"{name:<12}{noise:<8}{mae_display:<12}{ordering_display}")
+        for e in fused:
+            if e.confidence_score is not None:
+                device_confidence[e.device_id].append(e.confidence_score)
+
+        # ---- Colour MAE ----
+        if mae_a is None:
+            mae_display = "N/A"
+        elif mae_a < 30:
+            mae_display = Fore.GREEN + f"{mae_a:.2f}" + Style.RESET_ALL
+        elif mae_a < 40:
+            mae_display = Fore.YELLOW + f"{mae_a:.2f}" + Style.RESET_ALL
+        else:
+            mae_display = Fore.RED + f"{mae_a:.2f}" + Style.RESET_ALL
+
+        # ---- Colour Ordering ----
+        if ordering is None:
+            ordering_display = "N/A"
+        elif ordering >= 0.95:
+            ordering_display = Fore.GREEN + f"{ordering:.4f}" + Style.RESET_ALL
+        elif ordering >= 0.8:
+            ordering_display = Fore.YELLOW + f"{ordering:.4f}" + Style.RESET_ALL
+        else:
+            ordering_display = Fore.RED + f"{ordering:.4f}" + Style.RESET_ALL
+
+        print(f"{name:<12} {noise:<6} {mae_display:<12} {ordering_display}")
 
         results.append((noise, mae_a or 0, ordering or 0))
-
-    # =====================================================
-    # Plot: MAE vs Noise
-    # =====================================================
 
     noise_levels = [r[0] for r in results]
     mae_values = [r[1] for r in results]
     ordering_values = [r[2] for r in results]
 
+    # =====================================================
+    # MAE vs Noise
+    # =====================================================
+
+    mae_colors = ["green" if m < 30 else "orange" if m < 40 else "red" for m in mae_values]
+
     plt.figure()
-    plt.plot(noise_levels, mae_values, marker="o")
+    plt.scatter(noise_levels, mae_values, c=mae_colors, s=120)
+    plt.plot(noise_levels, mae_values, linestyle="--", alpha=0.5)
     plt.xlabel("Noise Level")
     plt.ylabel("MAE After Correction (sec)")
-    plt.title("MAE vs Noise")
+    plt.title("MAE vs Noise (Performance Categorised)")
     plt.grid(True)
-    plt.savefig("output/mae_vs_noise.png")
+    plt.savefig("output/mae_vs_noise_colored.png")
     plt.close()
 
     # =====================================================
-    # Plot: Ordering vs Noise
+    # Ordering vs Noise
     # =====================================================
 
+    ordering_colors = ["green" if a >= 0.95 else "orange" if a >= 0.8 else "red" for a in ordering_values]
+
     plt.figure()
-    plt.plot(noise_levels, ordering_values, marker="o")
+    plt.scatter(noise_levels, ordering_values, c=ordering_colors, s=120)
+    plt.plot(noise_levels, ordering_values, linestyle="--", alpha=0.5)
     plt.xlabel("Noise Level")
-    plt.ylabel("Weighted Ordering Accuracy")
-    plt.title("Ordering Accuracy vs Noise")
+    plt.ylabel("Ordering Accuracy")
+    plt.title("Ordering Accuracy vs Noise (Categorised)")
     plt.grid(True)
-    plt.savefig("output/ordering_vs_noise.png")
+    plt.savefig("output/ordering_vs_noise_colored.png")
+    plt.close()
+
+    # =====================================================
+    # Confidence vs Error
+    # =====================================================
+
+    if all_conf_err:
+        conf_vals = [c for c, e in all_conf_err]
+        err_vals = [e for c, e in all_conf_err]
+
+        plt.figure()
+        plt.scatter(conf_vals, err_vals, alpha=0.6)
+        plt.xlabel("Confidence Score")
+        plt.ylabel("Absolute Reconstruction Error (sec)")
+        plt.title("Confidence vs Reconstruction Error")
+        plt.grid(True)
+        plt.savefig("output/confidence_vs_error.png")
+        plt.close()
+
+    # =====================================================
+    # Average Confidence per Device
+    # =====================================================
+
+    avg_conf = {
+        device: sum(vals) / len(vals)
+        for device, vals in device_confidence.items()
+        if vals
+    }
+
+    devices = list(avg_conf.keys())
+    conf_values = list(avg_conf.values())
+
+    colors = ["green" if v >= 0.8 else "orange" if v >= 0.6 else "red" for v in conf_values]
+
+    plt.figure()
+    plt.bar(devices, conf_values, color=colors)
+    plt.xlabel("Device")
+    plt.ylabel("Average Confidence Score")
+    plt.title("Average Confidence per Device")
+    plt.ylim(0, 1)
+    plt.grid(axis="y", alpha=0.3)
+    plt.savefig("output/avg_confidence_per_device.png")
     plt.close()
 
     print("\nExperiment completed successfully.\n")
